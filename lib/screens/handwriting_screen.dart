@@ -68,6 +68,8 @@ class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
       await _controller!.setFlashMode(FlashMode.off);
 
       _isFlashAvailable = true;
+
+      _toggleFlash();
     } catch (e) {
       _isFlashAvailable = false;
       debugPrint("Flash not available: $e");
@@ -118,7 +120,7 @@ class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
       // Process overlay
       final gray = await cv.cvtColorAsync(rotatedMat, cv.COLOR_BGR2GRAY);
       final blurred = await cv.gaussianBlurAsync(gray, (1, 1), 0);
-      final edges = await cv.cannyAsync(blurred, 50, 150);
+      final edges = await cv.cannyAsync(blurred, 190, 190);
       final contoursResult = await cv.findContoursAsync(
         edges,
         cv.RETR_EXTERNAL,

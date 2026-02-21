@@ -22,7 +22,7 @@ Future<bool> handleBack(BuildContext context) async { //this has the back button
   final location = GoRouter.of(context).state.uri.path;
 
   if (location == '/results') {
-    context.go('/voice');
+    context.go('/');
     return false; // no pop
   }
 

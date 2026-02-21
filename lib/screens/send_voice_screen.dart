@@ -59,7 +59,7 @@ class _SendVoiceScreenState extends ConsumerState<SendVoiceScreen> {
                     duration: Duration(seconds: 4),
                   ),
                 );
-                context.go('/voice');
+                context.go('/');
                 break;
             }
           },
@@ -76,7 +76,7 @@ class _SendVoiceScreenState extends ConsumerState<SendVoiceScreen> {
                 duration: Duration(seconds: 4),
               ),
             );
-            context.go('/voice');
+            context.go('/');
           },
         );
       },
