@@ -103,7 +103,7 @@ final routerProvider = Provider<GoRouter>((ref) {
                       ),
                       centerTitle: true,
                       actions: [
-                        (currentPath == '/voice')
+                        (currentPath == '/voice' || currentPath == '/handwriting')
 
                         /// later u will add the pages that has instructions for them here
                             ?
