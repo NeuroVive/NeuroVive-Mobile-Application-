@@ -31,7 +31,6 @@ dependencies:
 
   opencv_dart: ^2.2.1+1
   camera:
-  dartcv4: ^2.2.1+1
   image: ^4.0.17
   image_picker: ^1.0.4
 dev_dependencies:
