@@ -36,6 +36,7 @@ final routerProvider = Provider<GoRouter>((ref) {
 
           ThemeData theme = switch (routeName) {
             '/voice' => Mainthemes.greenBackgroundTheme,
+            '/handwriting' => Mainthemes.blueBackgroundTheme,
             _ => Mainthemes.whiteBackgroundTheme,
           };
 
@@ -82,7 +83,7 @@ final routerProvider = Provider<GoRouter>((ref) {
                         onPressed: () {
                          handleBack(context);
                         },
-                        icon: Icon(Icons.arrow_back_ios_new),
+                        icon: Icon(Neurovive.arrow_left),
                         color: Theme
                             .of(context)
                             .colorScheme
@@ -171,7 +172,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(
             path: '/handwriting',
-            name: 'Hand Writing',
+            name: 'Handwriting Test',
             pageBuilder: (context, state) {
               return CustomTransitionPage(
                 key: state.pageKey,
