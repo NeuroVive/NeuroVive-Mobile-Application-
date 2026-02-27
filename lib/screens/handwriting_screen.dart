@@ -27,7 +27,8 @@ class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
   bool _isSpiralDetected = false;
   int _spiralDetectionCount = 0;
   Timer? _spiralDisappearTimer;
-  static const int requiredConsecutiveDetections = 2;
+  static const int REQUIRED_CONSECUTIVE_DETECTIONS = 2;
+  static const int DISABLE_AFTER_FRAMES = 5;
 
   bool _isFlashAvailable = false;
   bool _isFlashOn = false;
@@ -48,7 +49,7 @@ class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
     if (cameras.isEmpty) return;
 
     final backCamera = cameras.firstWhere(
-      (camera) => camera.lensDirection == CameraLensDirection.back,
+          (camera) => camera.lensDirection == CameraLensDirection.back,
       orElse: () => cameras.first,
     );
 
@@ -80,53 +81,45 @@ class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
   Future<void> _pickFromGallery() async {
     final XFile? image = await _picker.pickImage(
       source: ImageSource.gallery,
-      imageQuality: 90,
+      imageQuality: 80,
     );
 
     if (image != null) {
       try {
         final bytes = await image.readAsBytes();
-        cv.Mat mat = cv.imdecode(bytes, cv.IMREAD_COLOR);
-
-        // Aspect-ratio-aware resizing (max 1024)
-        if (mat.width > 1024 || mat.height > 1024) {
-          double factor = 1024 / (mat.width > mat.height ? mat.width : mat.height);
-          mat = await cv.resizeAsync(
-            mat,
-            ((mat.width * factor).toInt(), (mat.height * factor).toInt()),
-            interpolation: cv.INTER_AREA,
-          );
-        }
-
-        final detection = await _analyzeMatForSpiral(mat);
-        if (detection.isSpiralDetected) {
+        final mat = cv.imdecode(bytes, cv.IMREAD_COLOR);
+        cv.Mat resized = cv.resize(
+          mat,
+          (1000, 1600), // target size (width, height)
+          interpolation: cv.INTER_LINEAR,
+        );
+        if (await _checkSpiral(resized)) {
           setState(() {
             _capturedFilePath = image.path;
+
           });
         } else {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text("No spirals detected in this photo"),
-                duration: Duration(seconds: 2),
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                //
+                "no spirals detected in this photo",
               ),
-            );
-          }
+              duration: Duration(seconds: 2),
+            ),
+          );
         }
         mat.release();
       } catch (e) {
-        print('Error processing gallery image: $e');
+        print('Error converting image bytes to Mat: $e');
       }
     }
   }
 
-  /// Unified spiral analysis logic used by both camera and gallery paths.
-  Future<({bool isSpiralDetected, String bestShapeType, cv.Mat? annotated})>
-      _analyzeMatForSpiral(cv.Mat mat, {bool returnAnnotated = false}) async {
+  Future<bool> _checkSpiral(cv.Mat mat) async {
     final gray = await cv.cvtColorAsync(mat, cv.COLOR_BGR2GRAY);
-    final blurred = await cv.gaussianBlurAsync(gray, (3, 3), 0);
-    // Lowered thresholds for better sensitivity on gallery images
-    final edges = await cv.cannyAsync(blurred, 100, 200);
+    final blurred = await cv.gaussianBlurAsync(gray, (1, 1), 0);
+    final edges = await cv.cannyAsync(gray, 190, 190);
     final contoursResult = await cv.findContoursAsync(
       edges,
       cv.RETR_EXTERNAL,
@@ -134,93 +127,58 @@ class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
     );
 
     final contours = contoursResult.$1;
-    bool spiralDetected = false;
-    String bestShape = "None";
+    bool spiralDetectedInThisFrame = false;
+    int numberOfShapes = 0;
 
-    print("DEBUG: Analysis started. Contours found: ${contours.length}");
-
-    cv.Mat? overlay;
-    if (returnAnnotated) {
-      overlay = cv.Mat.zeros(mat.rows, mat.cols, cv.MatType.CV_8UC4);
-    }
-
-    // Filter and analyze contours
     for (int i = 0; i < contours.length; i++) {
       final contour = contours[i];
       final area = await cv.contourAreaAsync(contour);
-      if (area < 1000) continue; // Ignore small noise
+      if (area < 1000) continue;
+
+      numberOfShapes++;
+      if (numberOfShapes > 1) {
+        print("miore than one shape detected");
+        return false;
+      }
 
       final peri = await cv.arcLengthAsync(contour, true);
       final approx = await cv.approxPolyDPAsync(contour, 0.02 * peri, true);
       final rect = await cv.boundingRectAsync(approx);
 
-      String currentShape = "Other";
+      String shapeType = "";
       final vertices = approx.length;
 
-      final circularity = (4 * 3.1415926535 * area) / (peri * peri);
-      final boundingArea = rect.width * rect.height;
-      final density = area / boundingArea;
-
-      print("DEBUG: Contour index: $i, Area: ${area.toInt()}, Vertices: $vertices, Circularity: ${circularity.toStringAsFixed(3)}, Density: ${density.toStringAsFixed(3)}");
-
+      print("styarted detecting");
       if (vertices == 3) {
-        currentShape = "Triangle";
+        shapeType = "Triangle";
       } else if (vertices == 4) {
         final aspect = rect.width / rect.height;
-        currentShape = (aspect >= 0.9 && aspect <= 1.1) ? "Square" : "Rectangle";
+        shapeType = (aspect >= 0.95 && aspect <= 1.05) ? "Square" : "Rectangle";
       } else if (vertices == 5) {
-        currentShape = "Pentagon";
+        shapeType = "Pentagon";
       } else {
+        final circularity = (4 * 3.1415926535 * area) / (peri * peri);
+
         if (circularity > 0.75) {
-          currentShape = "Circle";
+          shapeType = "Circle";
         } else {
-          // Spiral heuristic: low density relative to bounds, many vertices
-          if (density < 0.85 && approx.length >= 8) {
-            currentShape = "Spiral";
-            spiralDetected = true;
+          final boundingArea = rect.width * rect.height;
+          final density = area / boundingArea;
+          print("denisty: $density, lenght : ${approx.length}");
+          if (density < 0.8 && approx.length >= 10) {
+            shapeType = "Spiral";
+
+            spiralDetectedInThisFrame = true;
           } else {
-            currentShape = "Ellipse";
+            shapeType = "Ellipse";
           }
         }
       }
 
-      print("DEBUG: Detected as: $currentShape");
-
-      if (currentShape == "Spiral") {
-        bestShape = "Spiral";
-      } else if (bestShape == "None") {
-        bestShape = currentShape;
-      }
-
-      if (returnAnnotated && overlay != null) {
-        await cv.drawContoursAsync(
-          overlay,
-          contours,
-          i,
-          cv.Scalar(0, 255, 0, 255),
-          thickness: 2,
-        );
-        await cv.putTextAsync(
-          overlay,
-          currentShape,
-          cv.Point(rect.x, rect.y - 5),
-          cv.FONT_HERSHEY_SIMPLEX,
-          0.6,
-          cv.Scalar(0, 0, 255, 255),
-          thickness: 2,
-        );
-      }
+      print("shape type: $shapeType");
     }
-
-    gray.release();
-    blurred.release();
-    edges.release();
-
-    return (
-      isSpiralDetected: spiralDetected,
-      bestShapeType: bestShape,
-      annotated: overlay
-    );
+    print("outside the loop now");
+    return spiralDetectedInThisFrame;
   }
 
   Future<void> _processCameraImage(CameraImage image) async {
@@ -251,25 +209,104 @@ class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
 
       final rotatedMat = await cv.rotateAsync(srcMat, cv.ROTATE_90_CLOCKWISE);
 
-      final analysis = await _analyzeMatForSpiral(rotatedMat, returnAnnotated: true);
-      
-      _updateSpiralDetectionState(analysis.isSpiralDetected);
+      final overlayMat = cv.Mat.zeros(
+        rotatedMat.rows,
+        rotatedMat.cols,
+        cv.MatType.CV_8UC4,
+      );
 
-      if (analysis.annotated != null && mounted) {
-        final (success, pngBytes) = await cv.imencodeAsync(".png", analysis.annotated!);
-        if (success) {
-          setState(() {
-            _overlayBytes = pngBytes;
-          });
+      final gray = await cv.cvtColorAsync(rotatedMat, cv.COLOR_BGR2GRAY);
+      final blurred = await cv.gaussianBlurAsync(gray, (1, 1), 0);
+      final edges = await cv.cannyAsync(blurred, 190, 190);
+      final contoursResult = await cv.findContoursAsync(
+        edges,
+        cv.RETR_EXTERNAL,
+        cv.CHAIN_APPROX_SIMPLE,
+      );
+
+      final contours = contoursResult.$1;
+      bool spiralDetectedInThisFrame = false;
+      int numberOfShapes = 0;
+
+      for (int i = 0; i < contours.length; i++) {
+        final contour = contours[i];
+        final area = await cv.contourAreaAsync(contour);
+        if (area < 1000) continue;
+
+        numberOfShapes++;
+
+        final peri = await cv.arcLengthAsync(contour, true);
+        final approx = await cv.approxPolyDPAsync(contour, 0.02 * peri, true);
+        final rect = await cv.boundingRectAsync(approx);
+
+        String shapeType = "";
+        final vertices = approx.length;
+
+        if (vertices == 3) {
+          shapeType = "Triangle";
+        } else if (vertices == 4) {
+          final aspect = rect.width / rect.height;
+          shapeType = (aspect >= 0.95 && aspect <= 1.05)
+              ? "Square"
+              : "Rectangle";
+        } else if (vertices == 5) {
+          shapeType = "Pentagon";
+        } else {
+          final circularity = (4 * 3.1415926535 * area) / (peri * peri);
+
+          if (circularity > 0.75) {
+            shapeType = "Circle";
+          } else {
+            final boundingArea = rect.width * rect.height;
+            final density = area / boundingArea;
+
+            if (density < 0.8 && approx.length >= 10) {
+              shapeType = "Spiral";
+              spiralDetectedInThisFrame = true;
+            } else {
+              shapeType = "Ellipse";
+            }
+          }
         }
+
+        await cv.drawContoursAsync(
+          overlayMat,
+          contours,
+          i,
+          cv.Scalar(0, 255, 0, 255),
+          thickness: 2,
+        );
+
+        await cv.putTextAsync(
+          overlayMat,
+          shapeType,
+          cv.Point(rect.x, rect.y - 5),
+          cv.FONT_HERSHEY_SIMPLEX,
+          0.6,
+          cv.Scalar(0, 0, 255, 255),
+          thickness: 2,
+        );
       }
 
-      srcMat.release();
-      rotatedMat.release();
-      analysis.annotated?.release();
-    } catch (e) {
-      print('Camera processing error: $e');
-    }
+      _updateSpiralDetectionState(
+        (numberOfShapes == 1) ? spiralDetectedInThisFrame : false,
+      );
+
+      final (success, pngBytes) = await cv.imencodeAsync(".png", overlayMat);
+
+      if (success && mounted) {
+        setState(() {
+          _overlayBytes = pngBytes;
+        });
+      }
+
+      srcMat.dispose();
+      rotatedMat.dispose();
+      overlayMat.dispose();
+      gray.dispose();
+      blurred.dispose();
+      edges.dispose();
+    } catch (_) {}
 
     _isProcessing = false;
   }
@@ -280,7 +317,7 @@ class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
       _spiralDisappearTimer?.cancel();
       _spiralDisappearTimer = null;
 
-      if (_spiralDetectionCount >= requiredConsecutiveDetections &&
+      if (_spiralDetectionCount >= REQUIRED_CONSECUTIVE_DETECTIONS &&
           !_isSpiralDetected) {
         setState(() => _isSpiralDetected = true);
       }
@@ -402,12 +439,12 @@ class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
               : Color.fromRGBO(162, 162, 162, 1),
           boxShadow: _isSpiralDetected
               ? [
-                  const BoxShadow(
-                    color: Color.fromRGBO(70, 209, 192, 1),
-                    blurRadius: 5.4,
-                    spreadRadius: 8,
-                  ),
-                ]
+            const BoxShadow(
+              color: Color.fromRGBO(70, 209, 192, 1),
+              blurRadius: 5.4,
+              spreadRadius: 8,
+            ),
+          ]
               : [],
         ),
         child: Image.asset("assets/images/camera.png"),
@@ -505,12 +542,12 @@ class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
                           : Color.fromRGBO(162, 162, 162, 1),
                       boxShadow: _isFlashOn
                           ? [
-                              const BoxShadow(
-                                color: Color.fromRGBO(249, 248, 113, .53),
-                                blurRadius: 4,
-                                spreadRadius: 4,
-                              ),
-                            ]
+                        const BoxShadow(
+                          color: Color.fromRGBO(249, 248, 113, .53),
+                          blurRadius: 4,
+                          spreadRadius: 4,
+                        ),
+                      ]
                           : [],
                     ),
                     child: Image.asset("assets/images/flash.png"),
