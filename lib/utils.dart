@@ -95,11 +95,15 @@ Widget _buildHelpInstructionsSheetForVoiceRecord(BuildContext context) {
       return Container(
         decoration: const BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
+          borderRadius: BorderRadius.only(
+            topLeft: Radius.circular(30),
+            topRight: Radius.circular(30),
+          ),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Header with X and title
             Padding(
               padding: const EdgeInsets.all(20),
               child: Row(
@@ -124,34 +128,52 @@ Widget _buildHelpInstructionsSheetForVoiceRecord(BuildContext context) {
                 ],
               ),
             ),
+
+            // Scrollable content
             Expanded(
               child: ListView(
                 controller: scrollController,
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 children: [
-                  _buildSectionTitle(
-                    AppLocalizations.of(context)!.voiceHelpFirstMain,
-                  ),
+                  _buildSectionTitle(AppLocalizations.of(context)!.voiceHelpFirstMain),
                   const SizedBox(height: 8),
                   _buildBulletPoint(
-                    AppLocalizations.of(
-                      context,
-                    )!.voiceHelpFirstMainFirstSubTitle,
-                    AppLocalizations.of(
-                      context,
-                    )!.voiceHelpFirstMainFirstSubDesc,
+                    AppLocalizations.of(context)!.voiceHelpFirstMainFirstSubTitle,
+                    AppLocalizations.of(context)!.voiceHelpFirstMainFirstSubDesc,
                   ),
                   _buildBulletPoint(
-                    AppLocalizations.of(
-                      context,
-                    )!.voiceHelpFirstMainSecondSubTitle,
-                    AppLocalizations.of(
-                      context,
-                    )!.voiceHelpFirstMainSecondSubDesc,
+                    AppLocalizations.of(context)!.voiceHelpFirstMainSecondSubTitle,
+                    AppLocalizations.of(context)!.voiceHelpFirstMainSecondSubDesc,
                   ),
                   const SizedBox(height: 16),
                   _buildDashedDivider(),
                   const SizedBox(height: 16),
+
+                  _buildSectionTitle(AppLocalizations.of(context)!.voiceHelpSecondMainTitle),
+                  const SizedBox(height: 8),
+                  _buildBulletPoint(
+                    AppLocalizations.of(context)!.voiceHelpSecondMainFirstSubTitle,
+                    AppLocalizations.of(context)!.voiceHelpSecondMainFirstSubDesc,
+                  ),
+                  _buildBulletPoint(
+                    AppLocalizations.of(context)!.voiceHelpSecondMainSecondSubTitle,
+                    AppLocalizations.of(context)!.voiceHelpSecondMainSecondSubDesc,
+                  ),
+                  const SizedBox(height: 16),
+                  _buildDashedDivider(),
+                  const SizedBox(height: 16),
+
+                  _buildSectionTitle(AppLocalizations.of(context)!.voiceHelpThirdMain),
+                  const SizedBox(height: 8),
+                  _buildBulletPoint(
+                    AppLocalizations.of(context)!.voiceHelpThirdMainFirstSubTitle,
+                    AppLocalizations.of(context)!.voiceHelpThirdMainFirstSubDesc,
+                  ),
+                  _buildBulletPoint(
+                    AppLocalizations.of(context)!.voiceHelpThirdMainSecondSubTitle,
+                    AppLocalizations.of(context)!.voiceHelpThirdMainSecondSubDesc,
+                  ),
+                  const SizedBox(height: 30),
                 ],
               ),
             ),
