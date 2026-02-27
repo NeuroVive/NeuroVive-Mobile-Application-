@@ -90,25 +90,24 @@ class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
         final mat = cv.imdecode(bytes, cv.IMREAD_COLOR);
         cv.Mat resized = cv.resize(
           mat,
-          (1000, 1600), // target size (width, height)
+          (300, 300), // target size (width, height)
           interpolation: cv.INTER_LINEAR,
         );
         if (await _checkSpiral(resized)) {
-          setState(() {
-            _capturedFilePath = image.path;
-
-          });
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                //
-                "no spirals detected in this photo",
-              ),
-              duration: Duration(seconds: 2),
-            ),
-          );
+          _capturedFilePath = image.path;
         }
+        else
+          {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text( //
+
+                  "no spirals detected in this photo",
+                ),
+                duration: Duration(seconds: 2),
+              ),
+            );
+          }
         mat.release();
       } catch (e) {
         print('Error converting image bytes to Mat: $e');
@@ -117,9 +116,10 @@ class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
   }
 
   Future<bool> _checkSpiral(cv.Mat mat) async {
+
     final gray = await cv.cvtColorAsync(mat, cv.COLOR_BGR2GRAY);
     final blurred = await cv.gaussianBlurAsync(gray, (1, 1), 0);
-    final edges = await cv.cannyAsync(blurred, 190, 190);
+    final edges = await cv.cannyAsync(gray, 20, 60);
     final contoursResult = await cv.findContoursAsync(
       edges,
       cv.RETR_EXTERNAL,
@@ -131,6 +131,8 @@ class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
     int numberOfShapes = 0;
 
     for (int i = 0; i < contours.length; i++) {
+
+
       final contour = contours[i];
       final area = await cv.contourAreaAsync(contour);
       if (area < 1000) continue;
@@ -164,7 +166,7 @@ class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
         } else {
           final boundingArea = rect.width * rect.height;
           final density = area / boundingArea;
-          print("denisty: $density, lenght : ${approx.length}");
+        print("denisty: $density, lenght : ${approx.length}");
           if (density < 0.8 && approx.length >= 10) {
             shapeType = "Spiral";
 
@@ -177,7 +179,7 @@ class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
 
       print("shape type: $shapeType");
     }
-    print("outside the loop now");
+
     return spiralDetectedInThisFrame;
   }
 
