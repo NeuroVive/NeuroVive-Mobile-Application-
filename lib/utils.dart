@@ -353,6 +353,13 @@ Widget _buildHelpInstructionsSheetForHandwriting(BuildContext context) {
                                       'Hold phone parallel to paper.',
                                       'Align spiral inside guide.',
                                     ], teal),
+                                    const SizedBox(height: 16),
+                                    _buildTextSection('Using Already saved Photo:', [
+                                      'the Photo should be horizontal',
+                                      'Ensure good lighting.',
+                                      'Hold phone parallel to paper.',
+                                      'Align spiral inside guide.',
+                                    ], teal),
                                   ],
                                 ),
                               ),
