@@ -19,7 +19,8 @@ class LiveShapeDetectionScreen extends StatefulWidget {
   State<LiveShapeDetectionScreen> createState() =>
       _LiveShapeDetectionScreenState();
 }
-
+double _imageWidth = 0;
+double _imageHeight = 0;
 class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
   CameraController? _controller;
   Uint8List? _overlayBytes;
@@ -76,6 +77,14 @@ class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
     setState(() {});
 
     _controller!.startImageStream(_processCameraImage);
+    final XFile image = await _controller!.takePicture();
+    final bytes = await File(image.path).readAsBytes();
+
+    final decoded = img.decodeImage(bytes);
+    if (decoded == null) throw Exception("Decode failed");
+
+     _imageWidth = decoded.width.toDouble();
+     _imageHeight = decoded.height.toDouble();
   }
 
   final ImagePicker _picker = ImagePicker();
@@ -375,14 +384,9 @@ class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
       final previewWidth = _previewSize!.width;
       final previewHeight = _previewSize!.height;
 
-      // === 1) Define scan rect in preview space ===
-      final scanWidth = previewWidth * 0.7;
-      final scanHeight = previewHeight * 0.4;
 
-      final scanLeft = (previewWidth - scanWidth) / 2;
-      final scanTop = (previewHeight - scanHeight) / 2;
 
-      // === 2) Handle BoxFit.cover scaling ===
+      // === 1) Handle BoxFit.cover scaling ===
       final imageAspect = imageWidth / imageHeight;
       final previewAspect = previewWidth / previewHeight;
 
@@ -401,6 +405,12 @@ class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
         final scaledImageHeight = imageHeight * scale;
         dy = (scaledImageHeight - previewHeight) / 2;
       }
+      // === 2) Define scan rect in preview space ===
+      final scanWidth = outputWidth * scale;
+      final scanHeight = outputHeight * scale;
+
+      final scanLeft = (previewWidth - scanWidth) / 2;
+      final scanTop = (previewHeight - scanHeight) / 2;
 
       // === 3) Convert preview rect → scaled image space ===
       final cropXScaled = scanLeft + dx;
@@ -409,8 +419,8 @@ class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
       // === 4) Convert scaled space → original image space ===
       final cropX = (cropXScaled / scale).round();
       final cropY = (cropYScaled / scale).round();
-      final cropWidth = (scanWidth / scale).round();
-      final cropHeight = (scanHeight / scale).round();
+      final cropWidth = outputWidth;
+      final cropHeight = outputHeight;
 
       // Clamp safety
       final safeX = cropX.clamp(0, decoded.width - 1);
@@ -553,7 +563,11 @@ class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
 
                     if (_capturedFilePath == null)
                       Positioned.fill(
-                        child: CustomPaint(painter: ScanAreaPainter()),
+                        child: CustomPaint(
+                          painter: ScanAreaPainter(
+                            imageAspectRatio: _controller!.value.aspectRatio,
+                          ),
+                        ),
                       ),
                     if (_capturedFilePath != null)
                       Center(
@@ -691,26 +705,48 @@ class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
   }
 }
 
+const int outputWidth = 300;
+const int outputHeight = 300;
+
 class ScanAreaPainter extends CustomPainter {
+  final double imageAspectRatio;
+
+  ScanAreaPainter({required this.imageAspectRatio});
+
   @override
   void paint(Canvas canvas, Size size) {
     final overlayColor = Colors.black.withOpacity(0.6);
     final paint = Paint()..color = overlayColor;
 
-    // Full screen dark overlay
-    final fullRect = Rect.fromLTWH(0, 0, size.width, size.height);
+    final previewWidth = size.width;
+    final previewHeight = size.height;
 
-    // Define scan area (centered rectangle)
-    final scanWidth = size.width * 0.7;
-    final scanHeight = size.height * 0.4;
+    final previewAspect = previewWidth / previewHeight;
+    final imageAspect = imageAspectRatio;
+
+
+
+    double scale;
+
+    if (imageAspect > previewAspect) {
+      // Image is wider → horizontal crop happens
+      scale = previewHeight / _imageHeight;
+    } else {
+      // Image is taller → vertical crop happens
+      scale = previewWidth / _imageWidth;
+    }
+
+    final scanWidth = outputWidth * scale;
+    final scanHeight = outputHeight * scale;
+
+    final fullRect = Rect.fromLTWH(0, 0, previewWidth, previewHeight);
 
     final scanRect = Rect.fromCenter(
-      center: Offset(size.width / 2, size.height / 2),
+      center: Offset(previewWidth / 2, previewHeight / 2),
       width: scanWidth,
       height: scanHeight,
     );
 
-    // Create path with hole
     final path = Path()
       ..addRect(fullRect)
       ..addRect(scanRect)
@@ -718,7 +754,6 @@ class ScanAreaPainter extends CustomPainter {
 
     canvas.drawPath(path, paint);
 
-    // Optional: white border around scan area
     final borderPaint = Paint()
       ..color = Colors.white
       ..style = PaintingStyle.stroke
@@ -728,5 +763,6 @@ class ScanAreaPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(covariant ScanAreaPainter oldDelegate) =>
+      oldDelegate.imageAspectRatio != imageAspectRatio;
 }
