@@ -8,13 +8,13 @@ enum JobStatus {
   error, // 1
 }
 
-class VoiceResponse {
+class Response {
   final JobStatus status;
   final String? prediction;
   final double? confidence;
   final String? message;
 
-  VoiceResponse({
+  Response({
     required this.status,
     this.prediction,
     this.confidence,
@@ -36,8 +36,8 @@ class VoiceResponse {
     }
   }
 
-  factory VoiceResponse.fromJson(Map<String, dynamic> json) {
-    return VoiceResponse(
+  factory Response.fromJson(Map<String, dynamic> json) {
+    return Response(
       status: switch (json['status']) {
         'success' => JobStatus.success,
         'error' => JobStatus.error,
@@ -50,44 +50,35 @@ class VoiceResponse {
   }
 }
 
-final voiceUploadProvider =
-    AsyncNotifierProvider<VoiceUploadNotifier, VoiceResponse?>(
-      VoiceUploadNotifier.new,
-    );
+final fileUploadProvider =
+AsyncNotifierProvider<FileUploadNotifier, Response?>(FileUploadNotifier.new);
 
-class VoiceUploadNotifier extends AsyncNotifier<VoiceResponse?> {
+class FileUploadNotifier extends AsyncNotifier<Response?> {
   @override
-  Future<VoiceResponse?> build() async {
+  Future<Response?> build() async {
     return null; // idle
   }
 
-  Future<void> upload(String path) async {
+  /// Generic upload function
+  Future<void> upload({
+    required String path,
+    required Future<Response> Function(String path) uploadFunction,
+  }) async {
     state = const AsyncLoading();
 
     state = await AsyncValue.guard(() async {
-      if (kIsWeb) //for testing only
-      {
-        return VoiceResponse(
+      if (kIsWeb) {
+        return Response(
           status: JobStatus.success,
-          prediction: "has Parkinson",
-          confidence: 0.82,
+          prediction: "Demo result",
+          confidence: 0.9,
         );
       }
 
-      ///it has
-      ///final JobStatus status;
-      ///final string? prediction;
-      ///final double? confidence;
-      ///final String? message;
-      ///
-      ///
-      ///
-      final parsedResponse = await Api.sendVoice(path);
+      // Call the API-specific upload function
+      final parsedResponse = await uploadFunction(path);
 
-
-
-       return parsedResponse;
-
+      return parsedResponse;
     });
   }
 }

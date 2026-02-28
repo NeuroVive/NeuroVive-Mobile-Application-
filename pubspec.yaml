@@ -28,7 +28,7 @@ dependencies:
   path_provider: ^2.1.2 #todo: this doesnt support web so search for something else
   http: ^1.6.0
   rename_app: ^1.6.5
-
+  html:
   opencv_dart: ^2.2.1+1
   camera:
   image: ^4.0.17

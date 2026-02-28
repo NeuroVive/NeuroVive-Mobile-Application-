@@ -190,15 +190,21 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: '/sendvoice',
             name: '#',
             builder: (context, state) {
-              final path = state.extra as String; // pass wav path via extra
-              return SendVoiceScreen(wavPath: path);
+              // Ensure extra is not null and has the correct type
+              final extra = state.extra;
+              if (extra is! (String, FileType)) {
+                throw Exception('Expected a (String, FileType) tuple in state.extra');
+              }
+
+              final (filePath, type) = extra; // destructure tuple
+              return SendVoiceScreen(filePath: filePath, type: type);
             },
           ),
           GoRoute(
               path: '/results',
               name: 'Medical Report',
               builder: (context, state) {
-                final results = state.extra as VoiceResponse;
+                final results = state.extra as Response;
                 return  ResultScreen(result: results);
 
               })

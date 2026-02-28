@@ -7,7 +7,7 @@ import '../utils.dart';
 import '../widgets/ai_risk_gauge.dart';
 
 class ResultScreen extends ConsumerWidget {
-  final VoiceResponse result;
+  final Response result;
 
   const ResultScreen({super.key, required this.result});
 
@@ -41,7 +41,7 @@ class ResultScreen extends ConsumerWidget {
 }
 
 class _AiRiskCard extends StatelessWidget {
-  final VoiceResponse result;
+  final Response result;
   const _AiRiskCard({required this.result});
 
 

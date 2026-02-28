@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:neurovive/screens/send_voice_screen.dart';
 
 import '../icons/neurovive_icons.dart';
 import '../l10n/app_localizations.dart';
@@ -150,7 +151,7 @@ class _RecordScreen2State extends ConsumerState<RecordScreen2> {
   }
 
   void submitVoice() {
-    context.go('/sendvoice', extra: filePath);
+    context.go('/sendvoice', extra: (filePath,FileType.voice));
   }
 
   void stopTimer() {

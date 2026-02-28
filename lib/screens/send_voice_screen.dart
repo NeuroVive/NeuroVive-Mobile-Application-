@@ -5,13 +5,21 @@ import 'package:go_router/go_router.dart';
 
 import '../l10n/app_localizations.dart';
 import '../notifiers/voice_upload_notifier.dart';
+import '../services/api.dart';
 import '../utils.dart';
 import '../widgets/uploading_loading.dart';
 
-class SendVoiceScreen extends ConsumerStatefulWidget {
-  final String wavPath;
+enum FileType{
+  voice,
+  image
 
-  const SendVoiceScreen({super.key, required this.wavPath});
+}
+
+class SendVoiceScreen extends ConsumerStatefulWidget {
+  final String filePath;
+  final  FileType type;
+
+  const SendVoiceScreen({super.key, required this.filePath, required this.type});
 
   @override
   ConsumerState<SendVoiceScreen> createState() => _SendVoiceScreenState();
@@ -24,7 +32,11 @@ class _SendVoiceScreenState extends ConsumerState<SendVoiceScreen> {
 
     // Start upload
     Future.microtask(() {
-      ref.read(voiceUploadProvider.notifier).upload(widget.wavPath);
+
+      ref.read(fileUploadProvider.notifier).upload(
+        path: widget.filePath,
+        uploadFunction: (widget.type == FileType.voice)? Api.sendVoice: Api.sendImage,
+      );
     });
 
 
@@ -32,10 +44,10 @@ class _SendVoiceScreenState extends ConsumerState<SendVoiceScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final state = ref.watch(voiceUploadProvider);
+    final state = ref.watch(fileUploadProvider);
     // Listen for state changes
-    ref.listen<AsyncValue<VoiceResponse?>>(
-      voiceUploadProvider,
+    ref.listen<AsyncValue<Response?>>(
+      fileUploadProvider,
           (previous, next) {
         next.whenOrNull(
           data: (result) {

@@ -5,8 +5,10 @@ import 'dart:typed_data';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
 import 'package:neurovive/icons/neurovive_icons.dart';
+import 'package:neurovive/screens/send_voice_screen.dart';
 import 'package:opencv_dart/opencv_dart.dart' as cv;
 import 'package:path_provider/path_provider.dart';
 
@@ -49,7 +51,7 @@ class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
     if (cameras.isEmpty) return;
 
     final backCamera = cameras.firstWhere(
-          (camera) => camera.lensDirection == CameraLensDirection.back,
+      (camera) => camera.lensDirection == CameraLensDirection.back,
       orElse: () => cameras.first,
     );
 
@@ -96,7 +98,6 @@ class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
         if (await _checkSpiral(resized)) {
           setState(() {
             _capturedFilePath = image.path;
-
           });
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -349,27 +350,97 @@ class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
     setState(() => _isFlashOn = !_isFlashOn);
   }
 
+  Size? _previewSize;
+
   Future<void> _captureImage() async {
-    if (_controller == null || !_isSpiralDetected || _isCapturing) return;
+    if (_controller == null ||
+        !_controller!.value.isInitialized ||
+        !_isSpiralDetected ||
+        _isCapturing ||
+        _previewSize == null)
+      return;
 
     setState(() => _isCapturing = true);
 
     try {
       final XFile image = await _controller!.takePicture();
-      final File imageFile = File(image.path);
-      final Uint8List imageBytes = await imageFile.readAsBytes();
+      final bytes = await File(image.path).readAsBytes();
+
+      final decoded = img.decodeImage(bytes);
+      if (decoded == null) throw Exception("Decode failed");
+
+      final imageWidth = decoded.width.toDouble();
+      final imageHeight = decoded.height.toDouble();
+
+      final previewWidth = _previewSize!.width;
+      final previewHeight = _previewSize!.height;
+
+      // === 1) Define scan rect in preview space ===
+      final scanWidth = previewWidth * 0.7;
+      final scanHeight = previewHeight * 0.4;
+
+      final scanLeft = (previewWidth - scanWidth) / 2;
+      final scanTop = (previewHeight - scanHeight) / 2;
+
+      // === 2) Handle BoxFit.cover scaling ===
+      final imageAspect = imageWidth / imageHeight;
+      final previewAspect = previewWidth / previewHeight;
+
+      double scale;
+      double dx = 0;
+      double dy = 0;
+
+      if (imageAspect > previewAspect) {
+        // Image is wider → horizontal crop happens
+        scale = previewHeight / imageHeight;
+        final scaledImageWidth = imageWidth * scale;
+        dx = (scaledImageWidth - previewWidth) / 2;
+      } else {
+        // Image is taller → vertical crop happens
+        scale = previewWidth / imageWidth;
+        final scaledImageHeight = imageHeight * scale;
+        dy = (scaledImageHeight - previewHeight) / 2;
+      }
+
+      // === 3) Convert preview rect → scaled image space ===
+      final cropXScaled = scanLeft + dx;
+      final cropYScaled = scanTop + dy;
+
+      // === 4) Convert scaled space → original image space ===
+      final cropX = (cropXScaled / scale).round();
+      final cropY = (cropYScaled / scale).round();
+      final cropWidth = (scanWidth / scale).round();
+      final cropHeight = (scanHeight / scale).round();
+
+      // Clamp safety
+      final safeX = cropX.clamp(0, decoded.width - 1);
+      final safeY = cropY.clamp(0, decoded.height - 1);
+      final safeW = cropWidth.clamp(1, decoded.width - safeX);
+      final safeH = cropHeight.clamp(1, decoded.height - safeY);
+
+      // === 5) Crop ===
+      final cropped = img.copyCrop(
+        decoded,
+        x: safeX,
+        y: safeY,
+        width: safeW,
+        height: safeH,
+      );
+
+      final croppedBytes = img.encodeJpg(cropped, quality: 95);
 
       final dir = await getApplicationDocumentsDirectory();
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       final savedFile = File('${dir.path}/spiral_$timestamp.jpg');
-      await savedFile.writeAsBytes(imageBytes);
+
+      await savedFile.writeAsBytes(croppedBytes);
 
       if (mounted) {
         setState(() {
           _capturedFilePath = savedFile.path;
         });
       }
-    } catch (_) {
+    } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Capture failed'),
@@ -439,16 +510,136 @@ class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
               : Color.fromRGBO(162, 162, 162, 1),
           boxShadow: _isSpiralDetected
               ? [
-            const BoxShadow(
-              color: Color.fromRGBO(70, 209, 192, 1),
-              blurRadius: 5.4,
-              spreadRadius: 8,
-            ),
-          ]
+                  const BoxShadow(
+                    color: Color.fromRGBO(70, 209, 192, 1),
+                    blurRadius: 5.4,
+                    spreadRadius: 8,
+                  ),
+                ]
               : [],
         ),
         child: Image.asset("assets/images/camera.png"),
       ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_controller == null || !_controller!.value.isInitialized) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    return Column(
+      children: [
+        Expanded(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final previewSize = Size(
+                constraints.maxWidth,
+                constraints.maxHeight,
+              );
+
+              _previewSize = previewSize;
+
+              return Center(
+                child: Stack(
+                  children: [
+                    /// i know there is a dublication iof condition so it doesnt look the best, but thats bette rthan making a whole new stack for it
+                    if (_capturedFilePath == null)
+                      AspectRatio(
+                        aspectRatio: 1 / _controller!.value.aspectRatio,
+                        child: CameraPreview(_controller!),
+                      ),
+
+                    if (_capturedFilePath == null)
+                      Positioned.fill(
+                        child: CustomPaint(painter: ScanAreaPainter()),
+                      ),
+                    if (_capturedFilePath != null)
+                      Center(
+                        child: Image.file(
+                          File(_capturedFilePath!),
+                          fit: BoxFit.cover,
+                        ),
+                      )
+                    else if (_overlayBytes != null)
+                      Positioned.fill(
+                        child: Image.memory(_overlayBytes!, fit: BoxFit.cover),
+                      ),
+
+                    // Flash Button
+                    if (_capturedFilePath == null)
+                      Positioned(
+                        top: 20,
+                        left: 20,
+                        child: GestureDetector(
+                          onTap: _toggleFlash,
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 200),
+                            padding: const EdgeInsets.all(8),
+                            width: 50,
+                            height: 50,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: _isFlashOn
+                                  ? Color.fromRGBO(249, 248, 113, 1)
+                                  : Color.fromRGBO(162, 162, 162, 1),
+                              boxShadow: _isFlashOn
+                                  ? [
+                                      const BoxShadow(
+                                        color: Color.fromRGBO(
+                                          249,
+                                          248,
+                                          113,
+                                          .53,
+                                        ),
+                                        blurRadius: 4,
+                                        spreadRadius: 4,
+                                      ),
+                                    ]
+                                  : [],
+                            ),
+                            child: Image.asset("assets/images/flash.png"),
+                          ),
+                        ),
+                      ),
+                    // Gallery Button
+                    if (_capturedFilePath == null)
+                      Positioned(
+                        bottom: 20,
+                        right: 20,
+                        child: GestureDetector(
+                          onTap: _pickFromGallery,
+                          child: Container(
+                            padding: EdgeInsets.all(5),
+                            width: 40,
+                            height: 40,
+                            decoration: const BoxDecoration(
+                              color: Colors.white70,
+                              shape: BoxShape.circle,
+                            ),
+                            child: Image.asset("assets/images/multimedia.png"),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+
+        // ===== BOTTOM AREA =====
+        Container(
+          height: 120,
+          color: Color.fromRGBO(35, 68, 116, 1),
+          child: Center(
+            child: _capturedFilePath != null
+                ? _buildConfirmationButtons()
+                : _buildCaptureButton(),
+          ),
+        ),
+      ],
     );
   }
 
@@ -482,7 +673,7 @@ class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
         GestureDetector(
           onTap: () {
             if (_capturedFilePath != null) {
-              context.go('/sendvoice', extra: _capturedFilePath);
+              context.go('/sendvoice', extra: (_capturedFilePath,FileType.image));
             }
           },
           child: Container(
@@ -498,95 +689,44 @@ class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
       ],
     );
   }
+}
+
+class ScanAreaPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final overlayColor = Colors.black.withOpacity(0.6);
+    final paint = Paint()..color = overlayColor;
+
+    // Full screen dark overlay
+    final fullRect = Rect.fromLTWH(0, 0, size.width, size.height);
+
+    // Define scan area (centered rectangle)
+    final scanWidth = size.width * 0.7;
+    final scanHeight = size.height * 0.4;
+
+    final scanRect = Rect.fromCenter(
+      center: Offset(size.width / 2, size.height / 2),
+      width: scanWidth,
+      height: scanHeight,
+    );
+
+    // Create path with hole
+    final path = Path()
+      ..addRect(fullRect)
+      ..addRect(scanRect)
+      ..fillType = PathFillType.evenOdd;
+
+    canvas.drawPath(path, paint);
+
+    // Optional: white border around scan area
+    final borderPaint = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3;
+
+    canvas.drawRect(scanRect, borderPaint);
+  }
 
   @override
-  Widget build(BuildContext context) {
-    if (_controller == null || !_controller!.value.isInitialized) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    return Column(
-      children: [
-        Expanded(
-          child: Stack(
-            children: [
-              Positioned.fill(child: CameraPreview(_controller!)),
-
-              if (_capturedFilePath != null)
-                Positioned.fill(
-                  child: Image.file(
-                    File(_capturedFilePath!),
-                    fit: BoxFit.cover,
-                  ),
-                )
-              else if (_overlayBytes != null)
-                Positioned.fill(
-                  child: Image.memory(_overlayBytes!, fit: BoxFit.cover),
-                ),
-
-              // Flash Button
-              Positioned(
-                top: 20,
-                left: 20,
-                child: GestureDetector(
-                  onTap: _toggleFlash,
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                    padding: const EdgeInsets.all(8),
-                    width: 50,
-                    height: 50,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: _isFlashOn
-                          ? Color.fromRGBO(249, 248, 113, 1)
-                          : Color.fromRGBO(162, 162, 162, 1),
-                      boxShadow: _isFlashOn
-                          ? [
-                        const BoxShadow(
-                          color: Color.fromRGBO(249, 248, 113, .53),
-                          blurRadius: 4,
-                          spreadRadius: 4,
-                        ),
-                      ]
-                          : [],
-                    ),
-                    child: Image.asset("assets/images/flash.png"),
-                  ),
-                ),
-              ),
-              // Gallery Button
-              Positioned(
-                bottom: 20,
-                right: 20,
-                child: GestureDetector(
-                  onTap: _pickFromGallery,
-                  child: Container(
-                    padding: EdgeInsets.all(5),
-                    width: 40,
-                    height: 40,
-                    decoration: const BoxDecoration(
-                      color: Colors.white70,
-                      shape: BoxShape.circle,
-                    ),
-                    child: Image.asset("assets/images/multimedia.png"),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-
-        // ===== BOTTOM AREA =====
-        Container(
-          height: 120,
-          color: Color.fromRGBO(35, 68, 116, 1),
-          child: Center(
-            child: _capturedFilePath != null
-                ? _buildConfirmationButtons()
-                : _buildCaptureButton(),
-          ),
-        ),
-      ],
-    );
-  }
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
