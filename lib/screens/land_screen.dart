@@ -51,7 +51,14 @@ class LandScreen extends ConsumerWidget {
                     },
                     text: "hand writing",
                   ),
-
+                  AnimatedTextButton(
+                    normalColor: Theme.of(context).colorScheme.onSecondary,
+                    backgroundColor: Theme.of(context).colorScheme.secondary,
+                    onPressed: () {
+                      context.push('/pen');
+                    },
+                    text: "pen",
+                  ),
 
                 ],
               ),

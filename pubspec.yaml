@@ -2,7 +2,7 @@ name: neurovive
 description: "An AI solution that early diagnosis Parkinson disease."
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 
-version: 0.5.0+5
+version: 0.7.0+2
 
 environment:
   sdk: ^3.9.2
@@ -33,6 +33,13 @@ dependencies:
   camera:
   image: ^4.0.17
   image_picker: ^1.0.4
+
+
+
+  universal_ble: ^1.1.0
+  ffi:
+
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -46,6 +53,7 @@ flutter:
 
   assets:
      - assets/images/
+     - assets/liberaries/
 
   fonts:
     - family: Neurovive #the icons
