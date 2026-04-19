@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
@@ -12,22 +13,23 @@ import 'package:neurovive/screens/send_voice_screen.dart';
 import 'package:opencv_dart/opencv_dart.dart' as cv;
 import 'package:path_provider/path_provider.dart';
 
-class LiveShapeDetectionScreen extends StatefulWidget {
+import '../view_models/handwriting_view_model.dart';
+
+class LiveShapeDetectionScreen extends ConsumerStatefulWidget {
   const LiveShapeDetectionScreen({super.key});
 
   @override
-  State<LiveShapeDetectionScreen> createState() =>
+  ConsumerState<LiveShapeDetectionScreen> createState() =>
       _LiveShapeDetectionScreenState();
 }
+
 double _imageWidth = 0;
 double _imageHeight = 0;
-class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
+
+class _LiveShapeDetectionScreenState extends ConsumerState<LiveShapeDetectionScreen> {
   CameraController? _controller;
-  Uint8List? _overlayBytes;
-  bool _isProcessing = false;
   int _frameCounter = 0;
 
-  bool _isSpiralDetected = false;
   int _spiralDetectionCount = 0;
   Timer? _spiralDisappearTimer;
   static const int REQUIRED_CONSECUTIVE_DETECTIONS = 2;
@@ -35,11 +37,6 @@ class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
 
   bool _isFlashAvailable = false;
   bool _isFlashOn = false;
-
-  bool _isCapturing = false;
-
-  // NEW → confirmation state
-  String? _capturedFilePath;
 
   @override
   void initState() {
@@ -105,9 +102,7 @@ class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
           interpolation: cv.INTER_LINEAR,
         );
         if (await _checkSpiral(resized)) {
-          setState(() {
-            _capturedFilePath = image.path;
-          });
+          ref.read(handwritingViewModelProvider.notifier).setCapturedFilePath(image.path);
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -192,12 +187,15 @@ class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
   }
 
   Future<void> _processCameraImage(CameraImage image) async {
-    if (_isProcessing || _capturedFilePath != null) return;
+    final viewModel = ref.read(handwritingViewModelProvider.notifier);
+    final state = ref.read(handwritingViewModelProvider);
+
+    if (state.isProcessing || state.capturedFilePath != null) return;
 
     _frameCounter++;
     if (_frameCounter % 3 != 0) return;
 
-    _isProcessing = true;
+    viewModel.setProcessing(true);
 
     try {
       final width = image.width;
@@ -213,7 +211,7 @@ class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
       );
 
       if (srcMat.rows == 0 || srcMat.cols == 0) {
-        _isProcessing = false;
+        viewModel.setProcessing(false);
         return;
       }
 
@@ -244,7 +242,6 @@ class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
         if (area < 1000) continue;
 
         numberOfShapes++;
-
         final peri = await cv.arcLengthAsync(contour, true);
         final approx = await cv.approxPolyDPAsync(contour, 0.02 * peri, true);
         final rect = await cv.boundingRectAsync(approx);
@@ -256,20 +253,16 @@ class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
           shapeType = "Triangle";
         } else if (vertices == 4) {
           final aspect = rect.width / rect.height;
-          shapeType = (aspect >= 0.95 && aspect <= 1.05)
-              ? "Square"
-              : "Rectangle";
+          shapeType = (aspect >= 0.95 && aspect <= 1.05) ? "Square" : "Rectangle";
         } else if (vertices == 5) {
           shapeType = "Pentagon";
         } else {
           final circularity = (4 * 3.1415926535 * area) / (peri * peri);
-
           if (circularity > 0.75) {
             shapeType = "Circle";
           } else {
             final boundingArea = rect.width * rect.height;
             final density = area / boundingArea;
-
             if (density < 0.8 && approx.length >= 10) {
               shapeType = "Spiral";
               spiralDetectedInThisFrame = true;
@@ -302,12 +295,9 @@ class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
         (numberOfShapes == 1) ? spiralDetectedInThisFrame : false,
       );
 
-      final (success, pngBytes) = await cv.imencodeAsync(".png", overlayMat);
-
+      final (success, pngBytes) = await cv.imencodeAsync('.png', overlayMat);
       if (success && mounted) {
-        setState(() {
-          _overlayBytes = pngBytes;
-        });
+        viewModel.setOverlayBytes(pngBytes);
       }
 
       srcMat.dispose();
@@ -316,29 +306,31 @@ class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
       gray.dispose();
       blurred.dispose();
       edges.dispose();
-    } catch (_) {}
+    } catch (_) {
+    }
 
-    _isProcessing = false;
+    viewModel.setProcessing(false);
   }
 
   void _updateSpiralDetectionState(bool detected) {
+    final viewModel = ref.read(handwritingViewModelProvider.notifier);
+    final state = ref.read(handwritingViewModelProvider);
+
     if (detected) {
       _spiralDetectionCount++;
       _spiralDisappearTimer?.cancel();
       _spiralDisappearTimer = null;
 
       if (_spiralDetectionCount >= REQUIRED_CONSECUTIVE_DETECTIONS &&
-          !_isSpiralDetected) {
-        setState(() => _isSpiralDetected = true);
+          !state.isSpiralDetected) {
+        viewModel.setSpiralDetected(true);
       }
     } else {
-      if (_isSpiralDetected) {
+      if (state.isSpiralDetected) {
         _spiralDisappearTimer ??= Timer(const Duration(milliseconds: 500), () {
           if (mounted) {
-            setState(() {
-              _isSpiralDetected = false;
-              _spiralDetectionCount = 0;
-            });
+            viewModel.setSpiralDetected(false);
+            _spiralDetectionCount = 0;
           }
         });
       } else {
@@ -362,14 +354,18 @@ class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
   Size? _previewSize;
 
   Future<void> _captureImage() async {
+    final viewModel = ref.read(handwritingViewModelProvider.notifier);
+    final state = ref.read(handwritingViewModelProvider);
+
     if (_controller == null ||
         !_controller!.value.isInitialized ||
-        !_isSpiralDetected ||
-        _isCapturing ||
-        _previewSize == null)
+        !state.isSpiralDetected ||
+        state.isCapturing ||
+        _previewSize == null) {
       return;
+    }
 
-    setState(() => _isCapturing = true);
+    viewModel.setCapturing(true);
 
     try {
       final XFile image = await _controller!.takePicture();
@@ -444,12 +440,7 @@ class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
       final savedFile = File('${dir.path}/spiral_$timestamp.jpg');
 
       await savedFile.writeAsBytes(croppedBytes);
-
-      if (mounted) {
-        setState(() {
-          _capturedFilePath = savedFile.path;
-        });
-      }
+      viewModel.setCapturedFilePath(savedFile.path);
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -458,9 +449,7 @@ class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
         ),
       );
     } finally {
-      if (mounted) {
-        setState(() => _isCapturing = false);
-      }
+      viewModel.setCapturing(false);
     }
   }
 
@@ -506,8 +495,10 @@ class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
   }
 
   Widget _buildCaptureButton() {
+    final state = ref.watch(handwritingViewModelProvider);
+
     return GestureDetector(
-      onTap: _isSpiralDetected && !_isCapturing ? _captureImage : null,
+      onTap: state.isSpiralDetected && !state.isCapturing ? _captureImage : null,
       child: AnimatedContainer(
         padding: EdgeInsetsGeometry.all(16),
         duration: const Duration(milliseconds: 200),
@@ -515,10 +506,10 @@ class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
         height: 90,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          color: _isSpiralDetected
+          color: state.isSpiralDetected
               ? Color.fromRGBO(70, 209, 192, 1)
               : Color.fromRGBO(162, 162, 162, 1),
-          boxShadow: _isSpiralDetected
+          boxShadow: state.isSpiralDetected
               ? [
                   const BoxShadow(
                     color: Color.fromRGBO(70, 209, 192, 1),
@@ -539,6 +530,8 @@ class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
       return const Center(child: CircularProgressIndicator());
     }
 
+    final state = ref.watch(handwritingViewModelProvider);
+
     return Column(
       children: [
         Expanded(
@@ -555,13 +548,13 @@ class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
                 child: Stack(
                   children: [
                     /// i know there is a dublication iof condition so it doesnt look the best, but thats bette rthan making a whole new stack for it
-                    if (_capturedFilePath == null)
+                    if (state.capturedFilePath == null)
                       AspectRatio(
                         aspectRatio: 1 / _controller!.value.aspectRatio,
                         child: CameraPreview(_controller!),
                       ),
 
-                    if (_capturedFilePath == null)
+                    if (state.capturedFilePath == null)
                       Positioned.fill(
                         child: CustomPaint(
                           painter: ScanAreaPainter(
@@ -569,20 +562,20 @@ class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
                           ),
                         ),
                       ),
-                    if (_capturedFilePath != null)
+                    if (state.capturedFilePath != null)
                       Center(
                         child: Image.file(
-                          File(_capturedFilePath!),
+                          File(state.capturedFilePath!),
                           fit: BoxFit.cover,
                         ),
                       )
-                    else if (_overlayBytes != null)
+                    else if (state.overlayBytes != null)
                       Positioned.fill(
-                        child: Image.memory(_overlayBytes!, fit: BoxFit.cover),
+                        child: Image.memory(state.overlayBytes!, fit: BoxFit.cover),
                       ),
 
                     // Flash Button
-                    if (_capturedFilePath == null)
+                    if (state.capturedFilePath == null)
                       Positioned(
                         top: 20,
                         left: 20,
@@ -618,7 +611,7 @@ class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
                         ),
                       ),
                     // Gallery Button
-                    if (_capturedFilePath == null)
+                    if (state.capturedFilePath == null)
                       Positioned(
                         bottom: 20,
                         right: 20,
@@ -648,7 +641,7 @@ class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
           height: 120,
           color: Color.fromRGBO(35, 68, 116, 1),
           child: Center(
-            child: _capturedFilePath != null
+            child: state.capturedFilePath != null
                 ? _buildConfirmationButtons()
                 : _buildCaptureButton(),
           ),
@@ -658,15 +651,16 @@ class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
   }
 
   Widget _buildConfirmationButtons() {
+    final state = ref.watch(handwritingViewModelProvider);
+    final viewModel = ref.read(handwritingViewModelProvider.notifier);
+
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: [
         // Cancel
         GestureDetector(
           onTap: () {
-            setState(() {
-              _capturedFilePath = null;
-            });
+            viewModel.setCapturedFilePath(null);
           },
           child: Container(
             width: 70,
@@ -686,8 +680,8 @@ class _LiveShapeDetectionScreenState extends State<LiveShapeDetectionScreen> {
         // Confirm
         GestureDetector(
           onTap: () {
-            if (_capturedFilePath != null) {
-              context.go('/sendvoice', extra: (_capturedFilePath,FileType.image));
+            if (state.capturedFilePath != null) {
+              context.go('/sendvoice', extra: (state.capturedFilePath,FileType.image));
             }
           },
           child: Container(

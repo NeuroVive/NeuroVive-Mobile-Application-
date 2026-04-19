@@ -4,9 +4,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../l10n/app_localizations.dart';
-import '../notifiers/voice_upload_notifier.dart';
+import '../models/api_response.dart';
 import '../services/api.dart';
 import '../utils.dart';
+import '../view_models/voice_upload_view_model.dart';
 import '../widgets/uploading_loading.dart';
 
 enum FileType{
@@ -33,10 +34,10 @@ class _SendVoiceScreenState extends ConsumerState<SendVoiceScreen> {
     // Start upload
     Future.microtask(() {
 
-      ref.read(fileUploadProvider.notifier).upload(
-        path: widget.filePath,
-        uploadFunction: (widget.type == FileType.voice)? Api.sendVoice: Api.sendImage,
-      );
+      ref.read(voiceUploadViewModelProvider.notifier).upload(
+      path: widget.filePath,
+      uploadFunction: (widget.type == FileType.voice) ? Api.sendVoice : Api.sendImage,
+    );
     });
 
 
@@ -44,11 +45,11 @@ class _SendVoiceScreenState extends ConsumerState<SendVoiceScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final state = ref.watch(fileUploadProvider);
+    final state = ref.watch(voiceUploadViewModelProvider);
     // Listen for state changes
     ref.listen<AsyncValue<Response?>>(
-      fileUploadProvider,
-          (previous, next) {
+      voiceUploadViewModelProvider,
+      (previous, next) {
         next.whenOrNull(
           data: (result) {
             if (result == null) return;

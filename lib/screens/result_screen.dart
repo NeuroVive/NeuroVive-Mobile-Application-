@@ -2,7 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../notifiers/voice_upload_notifier.dart';
+import '../models/api_response.dart';
 import '../utils.dart';
 import '../widgets/ai_risk_gauge.dart';
 

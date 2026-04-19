@@ -2,31 +2,15 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:universal_ble/universal_ble.dart';
-import '../services/bluetooth_service.dart';
 import '../app_constants.dart';
-import '../notifiers/smart_pen_notifier.dart';
+import '../services/bluetooth_service.dart';
+import '../view_models/smart_pen_view_model.dart';
+import '../view_models/bluetooth_connection_view_model.dart';
 
-// Providers
 final bluetoothServiceProvider = Provider<BluetoothSensorService>((ref) {
   final service = BluetoothSensorService();
-  ref.onDispose(() => service.dispose());
+  ref.onDispose(service.dispose);
   return service;
-});
-
-final scanResultsProvider = StreamProvider<List<BleDevice>>((ref) {
-  final service = ref.watch(bluetoothServiceProvider);
-  final controller = StreamController<List<BleDevice>>();
-
-  final subscription = service.scanResults.listen((device) {
-    controller.add([device]); // You'll need to accumulate devices
-  });
-
-  ref.onDispose(() {
-    subscription.cancel();
-    controller.close();
-  });
-
-  return controller.stream;
 });
 
 final connectionStateProvider = StreamProvider<BluetoothConnectionState>((ref) {
@@ -47,54 +31,12 @@ class BluetoothConnectionPage extends ConsumerStatefulWidget {
 }
 
 class _BluetoothConnectionPageState extends ConsumerState<BluetoothConnectionPage> {
-  final List<BleDevice> _discoveredDevices = [];
-  StreamSubscription? _scanSubscription;
-  bool _isInitialized = false;
-  bool _isCheckingConnection = true;
-
   @override
   void initState() {
     super.initState();
-    _initialize();
-  }
-
-  Future<void> _initialize() async {
-    final service = ref.read(bluetoothServiceProvider);
-    await service.initialize();
-
-    // Check if there's an existing connection
-    await _checkExistingConnection(service);
-
-    // Initialize SmartPen service if not using real application
-    if (!AppConstants.useRealApplication) {
-      final smartPenNotifier = ref.read(smartPenNotifierProvider.notifier);
-      await smartPenNotifier.initialize();
-    }
-
-    setState(() {
-      _isInitialized = true;
-      _isCheckingConnection = false;
+    Future.microtask(() {
+      ref.read(bluetoothConnectionViewModelProvider.notifier).initialize();
     });
-  }
-
-  Future<void> _checkExistingConnection(BluetoothSensorService service) async {
-    // Check if there's a connected device
-    if (service.connectedDevice != null) {
-      print('Found existing connection to: ${service.connectedDevice!.name}');
-
-      // You might want to verify the connection is still active
-      try {
-        // Try to read a characteristic or check connection state
-        final isConnected = await service.isDeviceConnected();
-        if (!isConnected) {
-          print('Connection is stale, disconnecting...');
-          await service.disconnect();
-        }
-      } catch (e) {
-        print('Error checking connection: $e');
-        await service.disconnect();
-      }
-    }
   }
 
   @override
@@ -102,8 +44,8 @@ class _BluetoothConnectionPageState extends ConsumerState<BluetoothConnectionPag
     final connectionStateAsync = ref.watch(connectionStateProvider);
     final packetAsync = ref.watch(sensorPacketProvider);
     final service = ref.watch(bluetoothServiceProvider);
-    final smartPenState = ref.watch(smartPenNotifierProvider);
-    final smartPenNotifier = ref.read(smartPenNotifierProvider.notifier);
+    final smartPenState = ref.watch(smartPenViewModelProvider);
+    final smartPenNotifier = ref.read(smartPenViewModelProvider.notifier);
 
     return Scaffold(
       appBar: AppBar(
@@ -150,9 +92,11 @@ class _BluetoothConnectionPageState extends ConsumerState<BluetoothConnectionPag
     AsyncValue<SensorPacket?> packetAsync,
     BluetoothSensorService service,
     SmartPenState smartPenState,
-    SmartPenNotifier smartPenNotifier,
+    SmartPenViewModel smartPenNotifier,
   ) {
-    if (_isCheckingConnection) {
+    final connectionState = ref.watch(bluetoothConnectionViewModelProvider);
+
+    if (connectionState.isCheckingConnection) {
       return const Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -165,7 +109,7 @@ class _BluetoothConnectionPageState extends ConsumerState<BluetoothConnectionPag
       );
     }
 
-    if (!_isInitialized) {
+    if (!connectionState.isInitialized) {
       return const Center(child: CircularProgressIndicator());
     }
 
@@ -183,7 +127,7 @@ class _BluetoothConnectionPageState extends ConsumerState<BluetoothConnectionPag
       AsyncValue<SensorPacket?> packetAsync,
       BluetoothSensorService service,
       SmartPenState smartPenState,
-      SmartPenNotifier smartPenNotifier,
+      SmartPenViewModel smartPenNotifier,
       ) {
     return connectionStateAsync.when(
       data: (state) {
@@ -285,7 +229,7 @@ class _BluetoothConnectionPageState extends ConsumerState<BluetoothConnectionPag
       AsyncValue<SensorPacket?> packetAsync,
       BluetoothSensorService service,
       SmartPenState smartPenState,
-      SmartPenNotifier smartPenNotifier,
+      SmartPenViewModel smartPenNotifier,
       ) {
     // If not using real application, show mock connected view
     if (!AppConstants.useRealApplication) {
@@ -338,63 +282,51 @@ class _BluetoothConnectionPageState extends ConsumerState<BluetoothConnectionPag
   }
 
   Widget _buildScanningView(BluetoothSensorService service) {
+    final connectionState = ref.watch(bluetoothConnectionViewModelProvider);
+
     return Column(
       children: [
-        Padding(
-          padding: const EdgeInsets.all(16),
+        const Padding(
+          padding: EdgeInsets.all(16),
           child: LinearProgressIndicator(),
         ),
         Expanded(
-          child: StreamBuilder<BleDevice>(
-            stream: service.scanResults,
-            builder: (context, snapshot) {
-              if (snapshot.hasData) {
-                final device = snapshot.data!;
-                if (!_discoveredDevices.any((d) => d.deviceId == device.deviceId)) {
-                  _discoveredDevices.add(device);
-                }
-              }
-
-              if (_discoveredDevices.isEmpty) {
-                return const Center(
+          child: connectionState.discoveredDevices.isEmpty
+              ? const Center(
                   child: Text('No devices found yet...'),
-                );
-              }
-
-              return ListView.builder(
-                itemCount: _discoveredDevices.length,
-                itemBuilder: (context, index) {
-                  final device = _discoveredDevices[index];
-                  return Card(
-                    margin: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 4,
-                    ),
-                    child: ListTile(
-                      leading: const Icon(Icons.bluetooth),
-                      title: Text(
-                        device.name?.isNotEmpty == true
-                            ? device.name!
-                            : 'Unknown Device',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
+                )
+              : ListView.builder(
+                  itemCount: connectionState.discoveredDevices.length,
+                  itemBuilder: (context, index) {
+                    final device = connectionState.discoveredDevices[index];
+                    return Card(
+                      margin: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 4,
                       ),
-                      subtitle: Text(device.deviceId),
-                      trailing: ElevatedButton(
-                        onPressed: () => _connectToDevice(service, device),
-                        child: const Text('Connect'),
+                      child: ListTile(
+                        leading: const Icon(Icons.bluetooth),
+                        title: Text(
+                          device.name?.isNotEmpty == true
+                              ? device.name!
+                              : 'Unknown Device',
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        subtitle: Text(device.deviceId),
+                        trailing: ElevatedButton(
+                          onPressed: () => _connectToDevice(service, device),
+                          child: const Text('Connect'),
+                        ),
                       ),
-                    ),
-                  );
-                },
-              );
-            },
-          ),
+                    );
+                  },
+                ),
         ),
       ],
     );
   }
 
-  Widget _buildConnectedView(AsyncValue<SensorPacket?> packetAsync, SmartPenState smartPenState, SmartPenNotifier smartPenNotifier) {
+  Widget _buildConnectedView(AsyncValue<SensorPacket?> packetAsync, SmartPenState smartPenState, SmartPenViewModel smartPenNotifier) {
     return packetAsync.when(
       data: (packet) {
         if (packet == null) {
@@ -573,7 +505,7 @@ class _BluetoothConnectionPageState extends ConsumerState<BluetoothConnectionPag
     );
   }
 
-  Widget _buildSmartPenSection(SmartPenState smartPenState, SmartPenNotifier smartPenNotifier) {
+  Widget _buildSmartPenSection(SmartPenState smartPenState, SmartPenViewModel smartPenNotifier) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -614,7 +546,7 @@ class _BluetoothConnectionPageState extends ConsumerState<BluetoothConnectionPag
     }
   }
 
-  Widget _buildMockConnectedView(SmartPenState smartPenState, SmartPenNotifier smartPenNotifier) {
+  Widget _buildMockConnectedView(SmartPenState smartPenState, SmartPenViewModel smartPenNotifier) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Column(
@@ -683,7 +615,6 @@ class _BluetoothConnectionPageState extends ConsumerState<BluetoothConnectionPag
             const SizedBox(height: 24),
             ElevatedButton(
               onPressed: () {
-                _discoveredDevices.clear();
                 _startScan(service);
               },
               child: const Text('Try Again'),
@@ -695,26 +626,19 @@ class _BluetoothConnectionPageState extends ConsumerState<BluetoothConnectionPag
   }
 
   Future<void> _startScan(BluetoothSensorService service) async {
-    setState(() {
-      _discoveredDevices.clear();
-    });
-    await service.startScan();
+    await ref.read(bluetoothConnectionViewModelProvider.notifier).startScan();
   }
 
   Future<void> _connectToDevice(BluetoothSensorService service, BleDevice device) async {
-    await service.connectToDevice(device);
+    await ref.read(bluetoothConnectionViewModelProvider.notifier).connectToDevice(device);
   }
 
   Future<void> _disconnect(BluetoothSensorService service) async {
-    await service.disconnect();
-    setState(() {
-      _discoveredDevices.clear();
-    });
+    await ref.read(bluetoothConnectionViewModelProvider.notifier).disconnect();
   }
 
   @override
   void dispose() {
-    _scanSubscription?.cancel();
     super.dispose();
   }
 }

@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -7,163 +6,18 @@ import 'package:neurovive/screens/send_voice_screen.dart';
 
 import '../icons/neurovive_icons.dart';
 import '../l10n/app_localizations.dart';
-import '../services/audio_recorder.dart';
 import '../utils.dart';
+import '../view_models/voice_record_view_model.dart';
 import '../widgets/mic_button.dart';
 
-class RecordScreen2 extends ConsumerStatefulWidget {
+class RecordScreen2 extends ConsumerWidget {
   const RecordScreen2({super.key});
 
   @override
-  ConsumerState<RecordScreen2> createState() => _RecordScreen2State();
-}
+  Widget build(BuildContext context, WidgetRef ref) {
+    final state = ref.watch(voiceRecordViewModelProvider);
+    final viewModel = ref.read(voiceRecordViewModelProvider.notifier);
 
-class _RecordScreen2State extends ConsumerState<RecordScreen2> {
-  bool isRecording = false;
-  bool isPaused = false;
-  bool doneRecording = false;
-
-  /// true when the user is recording for the first letter, and false for when they are recording for the second letter
-  bool isFirstPhase = true;
-
-  ///max seconds for each phase
-  int maxSeconds = 3;
-
-  ///changes from 3 to 6 when the user finishes recording the first letter
-  int currentMaxSeconds = 3;
-  int seconds = 0;
-  Timer? _timer;
-  String? filePath;
-
-  //initializing the record service
-  final AudioRecorderService recorder = AudioRecorderService();
-
-  void startTimer() {
-    _timer = Timer.periodic(const Duration(milliseconds: 100), (timer) {
-      setState(() {
-        seconds = recorder.getDuration();
-      });
-      if (seconds >= currentMaxSeconds && isRecording && !isPaused) {
-        if (isFirstPhase) {
-          toggleRecording();
-          isFirstPhase = false;
-          currentMaxSeconds += maxSeconds;
-        } else {
-          stopRecording();
-        }
-      }
-    });
-  }
-
-  void toggleRecording() async {
-    if (!isRecording) {
-      startRecording();
-      return;
-    }
-
-    if (!isPaused) {
-      if (!await recorder.pauseRecording()) {
-        return;
-      }
-        stopTimer();
-
-    } else {
-
-      if (! await recorder.resumeRecording()){
-        return;
-      }
-      startTimer();
-    }
-
-    setState(() {
-      isPaused = !isPaused;
-    });
-  }
-
-  void stopRecording() async {
-    if (!isRecording) {
-      return;
-    }
-    stopTimer();
-
-    // stoping the record and saving it
-    filePath = await recorder.stopRecording();
-
-    setState(() {
-      isRecording = false;
-      isPaused = false;
-      doneRecording = true;
-    });
-
-    // displaying the saved file path
-    // ScaffoldMessenger.of(
-    //   context,
-    // ).showSnackBar(SnackBar(content: Text("Saved: $filePath")));
-  }
-
-  void cancelRecording() async {
-    stopTimer();
-
-    await recorder.stopRecording();
-
-    setState(() {
-      isRecording = false;
-      isPaused = false;
-      seconds = 0;
-      doneRecording = false;
-      currentMaxSeconds = maxSeconds;
-      isFirstPhase = true;
-    });
-  }
-
-  Future<void> startRecording() async {
-    if(kIsWeb) // for testing only
-      {
-      filePath= "fake path";
-        submitVoice();
-      }
-    if (isRecording) return;
-
-    try {
-      await recorder.startRecording();
-    } catch (e) {
-      if (kDebugMode) {
-        print(e);
-      }
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(AppLocalizations.of(context)!.failedRecording),
-        ),
-      );
-      return;
-    }
-
-    setState(() {
-      isRecording = true;
-      currentMaxSeconds = maxSeconds;
-      isFirstPhase = true;
-      isPaused = false;
-      seconds = 0;
-    });
-
-    startTimer();
-  }
-
-  void submitVoice() {
-    context.go('/sendvoice', extra: (filePath,FileType.voice));
-  }
-
-  void stopTimer() {
-    _timer?.cancel();
-  }
-
-  String formatTime(int totalSeconds) {
-    return "${totalSeconds.toString().padLeft(2, '0')}/${currentMaxSeconds.toString().padLeft(2, '0')}";
-  }
-
-  @override
-  Widget build(BuildContext context) {
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didpop, _) async {
@@ -176,29 +30,26 @@ class _RecordScreen2State extends ConsumerState<RecordScreen2> {
           mainAxisSize: MainAxisSize.min,
           children: [
             MicButton(
-              amplitudeStream: recorder.amplitudeStream,
-              isRecording: isRecording,
-              onTap: null,
+              amplitudeStream: viewModel.amplitudeStream,
+              isRecording: state.isRecording,
+              onTap: () => viewModel.toggleRecording(),
             ),
-
             const SizedBox(height: 5),
-
             Text(
-              formatTime(seconds),
+              '${state.seconds.toString().padLeft(2, '0')}/${state.currentMaxSeconds.toString().padLeft(2, '0')}',
               style: const TextStyle(
                 fontSize: 80,
                 fontWeight: FontWeight.bold,
                 color: Colors.white,
               ),
             ),
-
             Center(
               child: SizedBox(
                 width: MediaQuery.of(context).size.width * 0.85,
-                child: Divider(color: Colors.white, thickness: 1),
+                child: const Divider(color: Colors.white, thickness: 1),
               ),
             ),
-            SizedBox(height: 20),
+            const SizedBox(height: 20),
             Text(
               AppLocalizations.of(context)!.recordOrder,
               style: const TextStyle(
@@ -207,56 +58,117 @@ class _RecordScreen2State extends ConsumerState<RecordScreen2> {
                 color: Colors.white,
               ),
             ),
-            SizedBox(height: 20),
+            const SizedBox(height: 20),
             Text(
-              isFirstPhase ? AppLocalizations.of(context)!.toneA : AppLocalizations.of(context)!.toneO,
+              state.isFirstPhase
+                  ? AppLocalizations.of(context)!.toneA
+                  : AppLocalizations.of(context)!.toneO,
               style: const TextStyle(
                 fontSize: 60,
                 fontWeight: FontWeight.bold,
                 color: Color.fromARGB(255, 93, 245, 225),
               ),
             ),
-            SizedBox(height: 10),
-
+            const SizedBox(height: 10),
             Column(
               children: [
                 const SizedBox(height: 25),
-
                 Stack(
-                  alignment: AlignmentGeometry.center,
+                  alignment: Alignment.center,
                   children: [
-                    if (isRecording || doneRecording)
+                    if (state.isRecording || state.doneRecording)
                       Container(
                         height: 90,
                         width: MediaQuery.of(context).size.width * 0.89,
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(22),
-                          shape: BoxShape.rectangle,
                           color: Colors.white,
                         ),
                       ),
-                    if (isRecording || doneRecording)
+                    if (state.isRecording || state.doneRecording)
                       Positioned(
                         left: MediaQuery.of(context).size.width * 0.1,
                         child: Container(
-                          //cancel
                           height: 50,
                           decoration: const BoxDecoration(
                             shape: BoxShape.circle,
-
                             color: Color.fromARGB(255, 187, 70, 72),
                           ),
                           child: IconButton(
                             icon: const Icon(
                               Neurovive.close,
                               color: Colors.white,
-                              fontWeight: FontWeight.w900,
                               size: 15,
                             ),
-                            onPressed: cancelRecording,
+                            onPressed: () async {
+                              await viewModel.cancelRecording();
+                            },
                           ),
                         ),
                       ),
+                    Container(
+                      padding: const EdgeInsets.all(25),
+                      decoration: const BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.white,
+                      ),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: (state.isPaused || (!state.isRecording && !state.doneRecording))
+                              ? const Color.fromARGB(255, 187, 70, 72)
+                              : (!state.doneRecording
+                                  ? const Color.fromARGB(255, 34, 75, 68)
+                                  : Colors.grey),
+                        ),
+                        child: IconButton(
+                          icon: Icon(
+                            (state.isPaused || state.doneRecording || !state.isRecording)
+                                ? Icons.play_arrow_rounded
+                                : Icons.pause,
+                            color: Colors.white,
+                            size: 55,
+                          ),
+                          onPressed: state.doneRecording ? null : () => viewModel.toggleRecording(),
+                        ),
+                      ),
+                    ),
+                    if (state.isRecording || state.doneRecording)
+                      Positioned(
+                        right: MediaQuery.of(context).size.width * 0.1,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: state.doneRecording
+                                ? const Color.fromARGB(255, 106, 210, 196)
+                                : Colors.grey,
+                          ),
+                          child: IconButton(
+                            icon: const Icon(
+                              Icons.check,
+                              color: Colors.white,
+                              size: 30,
+                            ),
+                            onPressed: state.doneRecording
+                                ? () {
+                                    if (state.filePath != null) {
+                                      context.go('/sendvoice', extra: (state.filePath, FileType.voice));
+                                    }
+                                  }
+                                : null,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
                     //  Pause /  Resume
                     Container(
